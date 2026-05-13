@@ -85,7 +85,9 @@
     .litem { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: .5px solid var(--border); font-size: 13px; }
     .litem input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--text); cursor: pointer; flex-shrink: 0; }
     .litem.done .ttext { text-decoration: line-through; color: var(--text3); }
-    .drag-handle { cursor: grab; color: var(--text3); font-size: 13px; user-select: none; }
+    .drag-handle { cursor: grab; color: var(--text3); font-size: 13px; user-select: none; touch-action: none; }
+    .litem.dragging-source { opacity: 0.2; }
+    .litem.drag-over-item { border-top: 2px solid var(--text); }
     .goal-tag { font-size: 9px; padding: 2px 7px; border-radius: 20px; color: #fff; white-space: nowrap; flex-shrink: 0; }
     .place-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
     .ptab { font-family: 'Jost', sans-serif; font-size: 11px; padding: 4px 12px; border: .5px solid var(--border); border-radius: 20px; background: var(--bg); color: var(--text2); cursor: pointer; }
@@ -204,7 +206,64 @@ function buildShopInputUI(){const wrap=document.getElementById('si-wrap');if(!wr
 function addTodo(text,goalId){if(!text.trim())return;todos.push({id:Date.now(),text:text.trim(),done:false,goalId:goalId||null});renderTodoList();renderGoals();save();}
 function toggleTodo(id){const t=todos.find(x=>x.id===id);if(t){t.done=!t.done;renderTodoList();renderGoals();save();}}
 function deleteTodo(id){todos.splice(todos.findIndex(x=>x.id===id),1);renderTodoList();renderGoals();save();}
-function renderTodoList(){const el=document.getElementById('todo-list');if(!el)return;el.innerHTML=todos.map(x=>{const g=x.goalId?findGoal(x.goalId):null;const col=g?goalColor(x.goalId):'';const wkDates0=getWeekDates(0),wkDates1=getWeekDates(1);return `<div class="litem ${x.done?'done':''}"><span class="drag-handle">⠿</span><input type="checkbox" ${x.done?'checked':''} onchange="toggleTodo(${x.id})"><span class="ttext" style="flex:1">${x.text}</span>${g?`<span class="goal-tag" style="background:${col}">${g.title}</span>`:''}<button class="add-to-week-btn" onclick="toggleDayPicker('dpanel-${x.id}')">週間へ＋</button><button class="xbtn" onclick="deleteTodo(${x.id})">×</button></div><div class="day-picker-panel" id="dpanel-${x.id}"><div class="day-picker-label">今週</div><div class="day-picker-btns">${DAY.map((d,i)=>`<button class="day-pick-btn" onclick="addToWeek('${esc(x.text)}',${i},'dpanel-${x.id}')">${d}<br><span style="font-size:9px">${wkDates0[i]}</span></button>`).join('')}</div><div class="day-picker-label" style="margin-top:6px">来週</div><div class="day-picker-btns">${DAY.map((d,i)=>`<button class="day-pick-btn" onclick="addToWeek('${esc(x.text)}',${7+i},'dpanel-${x.id}')">${d}<br><span style="font-size:9px">${wkDates1[i]}</span></button>`).join('')}</div></div>`;}).join('');}
+function renderTodoList(){const el=document.getElementById('todo-list');if(!el)return;el.innerHTML=todos.map((x,_idx)=>{const g=x.goalId?findGoal(x.goalId):null;const col=g?goalColor(x.goalId):'';const wkDates0=getWeekDates(0),wkDates1=getWeekDates(1);return `<div class="litem ${x.done?'done':''}" data-todo-idx="${_idx}"><span class="drag-handle">⠿</span><input type="checkbox" ${x.done?'checked':''} onchange="toggleTodo(${x.id})"><span class="ttext" style="flex:1">${x.text}</span>${g?`<span class="goal-tag" style="background:${col}">${g.title}</span>`:''}<button class="add-to-week-btn" onclick="toggleDayPicker('dpanel-${x.id}')">週間へ＋</button><button class="xbtn" onclick="deleteTodo(${x.id})">×</button></div><div class="day-picker-panel" id="dpanel-${x.id}"><div class="day-picker-label">今週</div><div class="day-picker-btns">${DAY.map((d,i)=>`<button class="day-pick-btn" onclick="addToWeek('${esc(x.text)}',${i},'dpanel-${x.id}')">${d}<br><span style="font-size:9px">${wkDates0[i]}</span></button>`).join('')}</div><div class="day-picker-label" style="margin-top:6px">来週</div><div class="day-picker-btns">${DAY.map((d,i)=>`<button class="day-pick-btn" onclick="addToWeek('${esc(x.text)}',${7+i},'dpanel-${x.id}')">${d}<br><span style="font-size:9px">${wkDates1[i]}</span></button>`).join('')}</div></div>`;}).join('');setupTodoDrag(el);}
+function setupTodoDrag(list){
+  if(!list)return;
+  let dragItem=null,clone=null,startIdx=-1,startY=0;
+  list.addEventListener('pointerdown',e=>{
+    const handle=e.target.closest('.drag-handle');
+    if(!handle)return;
+    const item=handle.closest('[data-todo-idx]');
+    if(!item)return;
+    e.preventDefault();
+    startIdx=parseInt(item.dataset.todoIdx);
+    dragItem=item;
+    startY=e.clientY;
+    const rect=item.getBoundingClientRect();
+    clone=item.cloneNode(true);
+    clone.style.cssText='position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;z-index:9999;opacity:0.9;pointer-events:none;background:var(--white);box-shadow:0 4px 16px rgba(0,0,0,0.2);border-radius:8px;padding:9px 0;';
+    document.body.appendChild(clone);
+    item.classList.add('dragging-source');
+    handle.setPointerCapture(e.pointerId);
+  },{passive:false});
+  list.addEventListener('pointermove',e=>{
+    if(!dragItem||!clone)return;
+    e.preventDefault();
+    clone.style.transform='translateY('+(e.clientY-startY)+'px)';
+    list.querySelectorAll('[data-todo-idx]').forEach(el=>el.classList.remove('drag-over-item'));
+    const items=[...list.querySelectorAll('[data-todo-idx]')];
+    for(const it of items){
+      if(it===dragItem)continue;
+      const r=it.getBoundingClientRect();
+      if(e.clientY<r.top+r.height*0.5){it.classList.add('drag-over-item');break;}
+    }
+  },{passive:false});
+  const finish=e=>{
+    if(!dragItem||!clone)return;
+    const items=[...list.querySelectorAll('[data-todo-idx]')];
+    let targetIdx=todos.length;
+    for(const it of items){
+      if(it===dragItem)continue;
+      const r=it.getBoundingClientRect();
+      if(e.clientY<r.top+r.height*0.5){targetIdx=parseInt(it.dataset.todoIdx);break;}
+    }
+    clone.remove();clone=null;
+    dragItem.classList.remove('dragging-source');
+    list.querySelectorAll('[data-todo-idx]').forEach(el=>el.classList.remove('drag-over-item'));
+    if(targetIdx!==startIdx){
+      const[moved]=todos.splice(startIdx,1);
+      todos.splice(targetIdx>startIdx?targetIdx-1:targetIdx,0,moved);
+      renderTodoList();save();
+    }
+    dragItem=null;
+  };
+  list.addEventListener('pointerup',finish);
+  list.addEventListener('pointercancel',e=>{
+    if(clone){clone.remove();clone=null;}
+    if(dragItem){dragItem.classList.remove('dragging-source');dragItem=null;}
+    list.querySelectorAll('[data-todo-idx]').forEach(el=>el.classList.remove('drag-over-item'));
+  });
+}
 function toggleDayPicker(id){document.querySelectorAll('.day-picker-panel').forEach(p=>{if(p.id!==id)p.classList.remove('show');});document.getElementById(id).classList.toggle('show');}
 function addToWeek(text,idx,panelId){if(!weekTasks[idx].includes(text)){weekTasks[idx].push(text);renderChips(idx);renderDayPool(idx);save();}document.getElementById(panelId).classList.remove('show');}
 function renderGoalSelect(){const sel=document.getElementById('ti-goal');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">なし</option>'+allGoals().map(g=>`<option value="${g.id}">${g.title}</option>`).join('');sel.value=cur;}
